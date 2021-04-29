@@ -1,0 +1,13 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "vulkan-playground:lib"
+
+    - path: "./app/Main.hs"
+      component: "vulkan-playground:exe:vulkan-playground-exe"
+
+    - path: "./app/Paths_vulkan_playground.hs"
+      component: "vulkan-playground:exe:vulkan-playground-exe"
+
+    - path: "./test"
+      component: "vulkan-playground:test:vulkan-playground-test"
