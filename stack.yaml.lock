@@ -11,6 +11,41 @@ packages:
       sha256: c3b765fa7e8221461cd3f9f1a1c7d1db398c736ca1d0fc7759d924c52bdb552c
   original:
     hackage: vulkan-3.10.1@sha256:1cf122be0b005892d7899242b5df94c62c7366d4bb4d56187708c7804f4f1023,24653
+- completed:
+    hackage: vulkan-utils-0.5.0@sha256:12565f38854bad5e349cb7cf71bf447d2d3720dc89b5ff92158079267be5a7c3,3954
+    pantry-tree:
+      size: 2225
+      sha256: ea0570b34b9c7c4958c72650572ee5d01d45193a25391a16f43b98cce4c77a4b
+  original:
+    hackage: vulkan-utils-0.5.0@sha256:12565f38854bad5e349cb7cf71bf447d2d3720dc89b5ff92158079267be5a7c3,3954
+- completed:
+    hackage: dependent-map-0.4.0.0@sha256:ca2b131046f4340a1c35d138c5a003fe4a5be96b14efc26291ed35fd08c62221,1657
+    pantry-tree:
+      size: 551
+      sha256: 5defa30010904d2ad05a036f3eaf83793506717c93cbeb599f40db1a3632cfc5
+  original:
+    hackage: dependent-map-0.4.0.0@sha256:ca2b131046f4340a1c35d138c5a003fe4a5be96b14efc26291ed35fd08c62221,1657
+- completed:
+    hackage: dependent-sum-0.7.1.0@sha256:0e419237f5b86da3659772afff9cab355c0f8d5b3fdb15a5b30e673d8dc83941,2147
+    pantry-tree:
+      size: 290
+      sha256: 009601e5d33e835c7a384e240c5c6ad12643bce9c54b2a0b07201daee3380e51
+  original:
+    hackage: dependent-sum-0.7.1.0@sha256:0e419237f5b86da3659772afff9cab355c0f8d5b3fdb15a5b30e673d8dc83941,2147
+- completed:
+    hackage: constraints-extras-0.3.1.0@sha256:12016ebb91ad5ed2c82bf7e48c6bd6947d164d33c9dca5ac3965de1bb6c780c0,1777
+    pantry-tree:
+      size: 595
+      sha256: 5fe01617233b7f66ba0e2aef95b218a19225a22e4193a8ed93999a3b7c43a4f3
+  original:
+    hackage: constraints-extras-0.3.1.0@sha256:12016ebb91ad5ed2c82bf7e48c6bd6947d164d33c9dca5ac3965de1bb6c780c0,1777
+- completed:
+    hackage: some-1.0.2@sha256:3d460998df32ad7b93bf55657aeae988d97070155e71718b4bc75d0997ce9d62,2244
+    pantry-tree:
+      size: 708
+      sha256: 119b67a712f8ba938383969b629cb3d489eacd10f9525346e19867ea0eb1be98
+  original:
+    hackage: some-1.0.2@sha256:3d460998df32ad7b93bf55657aeae988d97070155e71718b4bc75d0997ce9d62,2244
 snapshots:
 - completed:
     size: 567241

@@ -1,26 +1,32 @@
 module Main where
 
-import Control.Exception.Safe (Exception, MonadThrow, SomeException, bracket, throw, throwIO)
-import Control.Monad (unless)
+import Control.Exception.Safe (Exception, MonadCatch, SomeException (SomeException), bracket, throw, throwIO, try)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Managed.Safe (MonadManaged, managed, runManaged)
-import Data.Bits (Bits ((.|.)))
+import Control.Monad.Trans.Resource (MonadUnliftIO)
+import Data.Bits (Bits (zeroBits, (.&.), (.|.)))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (packCString)
-import Data.Foldable (Foldable (toList))
+import Data.Either (rights)
+import Data.Foldable (Foldable (toList), maximumBy)
 import Data.List (partition)
+import Data.Maybe (catMaybes)
+import Data.Ord (comparing)
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector (fromList)
+import qualified Data.Vector as Vector (fromList, maximumBy)
+import Foreign (Word64, castPtr)
 import Foreign.C (CInt)
 import Foreign.C.String (CString)
 import qualified SDL (Event (Event, eventPayload), EventPayload (QuitEvent), InitFlag (InitEvents, InitVideo), V2 (..), Window, WindowConfig (WindowConfig, windowGraphicsContext, windowInitialSize, windowResizable), WindowGraphicsContext (VulkanContext), createWindow, defaultWindow, destroyWindow, initialize, pollEvents, quit)
 import qualified SDL as SDLT
-import qualified SDL.Video.Vulkan as SDL (vkGetInstanceExtensions, vkLoadLibrary, vkUnloadLibrary)
-import Vulkan (ApplicationInfo (apiVersion, applicationName, applicationVersion, engineName), DebugUtilsMessageSeverityFlagBitsEXT (DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT), DebugUtilsMessageTypeFlagBitsEXT (DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT), DebugUtilsMessengerCreateInfoEXT (DebugUtilsMessengerCreateInfoEXT, messageSeverity, messageType), Device, ExtensionProperties (extensionName), Instance, InstanceCreateInfo (InstanceCreateInfo, applicationInfo, enabledExtensionNames, enabledLayerNames), Result (SUCCESS), SwapchainKHR, ValidationFeatureEnableEXT (VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT), ValidationFeaturesEXT, enabledValidationFeatures, enumerateInstanceExtensionProperties, enumerateInstanceLayerProperties, layerName, withDevice, withInstance, withSwapchainKHR, pattern API_VERSION_1_0, pattern EXT_DEBUG_UTILS_EXTENSION_NAME, pattern EXT_VALIDATION_FEATURES_EXTENSION_NAME)
+import qualified SDL.Video.Vulkan as SDL (vkCreateSurface, vkGetInstanceExtensions, vkLoadLibrary, vkUnloadLibrary)
+import UnliftIO.Resource (MonadResource, allocate, runResourceT)
+import Vulkan (ApplicationInfo (apiVersion, applicationName, applicationVersion, engineName), DebugUtilsMessageSeverityFlagBitsEXT (DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT), DebugUtilsMessageTypeFlagBitsEXT (DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT), DebugUtilsMessengerCreateInfoEXT (DebugUtilsMessengerCreateInfoEXT, messageSeverity, messageType, pfnUserCallback), Device, DeviceCreateInfo (DeviceCreateInfo), ExtensionProperties (extensionName), ImageSwapchainCreateInfoKHR (swapchain), Instance (instanceHandle), InstanceCreateInfo (InstanceCreateInfo, applicationInfo, enabledExtensionNames, enabledLayerNames), MemoryHeap (size), PhysicalDevice (PhysicalDevice), PhysicalDeviceMemoryProperties (memoryHeaps), QueueFlagBits (QUEUE_GRAPHICS_BIT), Result (SUCCESS), ScreenSurfaceCreateInfoQNX (window), SurfaceKHR (SurfaceKHR), SwapchainKHR, ValidationFeatureEnableEXT (VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT), ValidationFeaturesEXT, destroySurfaceKHR, deviceName, enabledValidationFeatures, enumerateDeviceExtensionProperties, enumerateInstanceExtensionProperties, enumerateInstanceLayerProperties, enumeratePhysicalDevices, getPhysicalDeviceMemoryProperties, getPhysicalDeviceProperties, getPhysicalDeviceQueueFamilyProperties, layerName, message, submitDebugUtilsMessageEXT, withDebugUtilsMessengerEXT, withDevice, withInstance, withSwapchainKHR, pattern API_VERSION_1_0, pattern EXT_DEBUG_UTILS_EXTENSION_NAME, pattern EXT_VALIDATION_FEATURES_EXTENSION_NAME, pattern KHR_SWAPCHAIN_EXTENSION_NAME)
 import Vulkan.CStruct.Extends (pattern (:&), pattern (::&))
 import Vulkan.Extensions (ValidationFeaturesEXT (ValidationFeaturesEXT))
+import Vulkan.Utils.Debug (debugCallbackPtr)
 import Vulkan.Zero (zero)
 
 -- info
@@ -45,63 +51,87 @@ requiredLayers, optionalLayers :: (IsString a, Eq a) => [a]
 requiredLayers = []
 optionalLayers = ["VK_LAYER_KHRONOS_validation"]
 
+requiredDeviceExtensions, optionalDeviceExtensions :: (Eq a, IsString a) => [a]
+requiredDeviceExtensions = [KHR_SWAPCHAIN_EXTENSION_NAME]
+optionalDeviceExtensions = []
+
+debugUtilsMessengerCreateInfoEXT ::
+  DebugUtilsMessengerCreateInfoEXT
+debugUtilsMessengerCreateInfoEXT =
+  zero
+    { messageSeverity =
+        DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+          .|. DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+      messageType =
+        DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+          .|. DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+          .|. DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+      pfnUserCallback = debugCallbackPtr
+    }
+
 main :: IO ()
 -- Create an instance and print its value
-main = runManaged $ do
+main = runResourceT $ do
   initSDL
 
-  --   inst <- withInstance zero Nothing allocate
+  --   inst <- withInstance zero Nothing manageResource
   --   layers <- enumerateInstanceLayerProperties
   --   extentions <- enumerateInstanceExtensionProperties Nothing
   --   liftIO $ print inst *> print layers *> print extentions
 
-  newSDLWindow appName SDL.defaultWindow $ \window -> pure ()
+  newVulkanWindow
+    appName
+    SDL.defaultWindow
+      { SDL.windowGraphicsContext = SDL.VulkanContext,
+        SDL.windowResizable = False,
+        SDL.windowInitialSize = windowDimention
+      }
+    $ \window swapchain ->
+      pure ()
 
---   device <- newVulkanDevice
---   newVulkanWindow
---     device
---     appName
---     SDL.defaultWindow
---       { SDL.windowGraphicsContext = SDL.VulkanContext,
---         SDL.windowResizable = True,
---         SDL.windowInitialSize = windowDimention
---       }
---     $ \window swpachain ->
---       drawTriangle
-
-drawTriangle :: MonadManaged m => m ()
+drawTriangle :: MonadResource m => m ()
 drawTriangle = do
   pure ()
 
--- newVulkanDevice :: (MonadManaged m, MonadIO m) => m Device
--- newVulkanDevice = do
---   allocate_ (SDL.vkLoadLibrary Nothing) SDL.vkUnloadLibrary
---   physicalDevice <- undefined
---   withDevice physicalDevice zero Nothing allocate
-
 newVulkanWindow ::
-  (MonadManaged m, MonadIO m) =>
-  Device ->
+  (MonadResource m, MonadCatch m, MonadIO m) =>
   Text ->
   SDL.WindowConfig ->
-  (SwapchainKHR -> SDL.Window -> m ()) ->
+  (SDL.Window -> SwapchainKHR -> m ()) ->
   m ()
-newVulkanWindow device title config windowAction = do
-  swapchain <- withSwapchainKHR device zero Nothing allocate
-  newSDLWindow title config $
-    windowAction swapchain
+newVulkanWindow title config windowAction =
+  newSDLWindow title config $ \window -> do
+    vulkanInstance <- newVulkanInstance window
+    withDebugUtilsMessengerEXT
+      vulkanInstance
+      debugUtilsMessengerCreateInfoEXT
+      Nothing
+      manageResource
+    submitDebugUtilsMessageEXT
+      vulkanInstance
+      DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+      DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+      zero {message = "Hello Vulkan from debug"}
+    surface <- newSDLWindowVulkanSurface window vulkanInstance
+    -- device <- newVulkanDevice vulkanInstance
+    -- swapchain <- withSwapchainKHR device zero Nothing manageResource
+    -- windowAction window swapchain
+    pure ()
 
--- making vulkan instance
+-- instantiate vulkan instance
 newVulkanInstance ::
-  (MonadThrow m, MonadManaged m) =>
+  (MonadResource m, MonadCatch m) =>
   SDL.Window ->
   m Instance
 newVulkanInstance window = do
-  instanceCreateInfo <- configureVulkanInstanceCreateInfo window
-  withInstance instanceCreateInfo Nothing allocate
+  instanceCreateInfo <- configureVulkanInstance window
+  logger "instanceCreateInfo" instanceCreateInfo
+  ins <- withInstance instanceCreateInfo Nothing manageResource
+  liftIO $ putStrLn "new Vulkan Instance"
+  pure ins
 
-configureVulkanInstanceCreateInfo ::
-  MonadIO m =>
+configureVulkanInstance ::
+  (MonadIO m, MonadCatch m) =>
   SDL.Window ->
   m
     ( InstanceCreateInfo
@@ -109,7 +139,7 @@ configureVulkanInstanceCreateInfo ::
            ValidationFeaturesEXT
          ]
     )
-configureVulkanInstanceCreateInfo window = do
+configureVulkanInstance window = do
   extensions <- configureVulkanExtensions window
   layers <- configureVulkanLayers
   pure $
@@ -122,17 +152,6 @@ configureVulkanInstanceCreateInfo window = do
         :& validationFeaturesEXT
         :& ()
   where
-    debugUtilsMessengerCreateInfoEXT :: DebugUtilsMessengerCreateInfoEXT
-    debugUtilsMessengerCreateInfoEXT =
-      zero
-        { messageSeverity =
-            DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-              .|. DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-          messageType =
-            DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-              .|. DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-              .|. DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
-        }
     validationFeaturesEXT :: ValidationFeaturesEXT
     validationFeaturesEXT =
       zero
@@ -142,49 +161,150 @@ configureVulkanInstanceCreateInfo window = do
         }
 
 configureVulkanExtensions ::
-  MonadIO m => SDL.Window -> m (Vector ByteString)
+  (MonadCatch m, MonadIO m) =>
+  SDL.Window ->
+  m (Vector ByteString)
 configureVulkanExtensions window = do
   windowExtensions <-
     stringConvert
       =<< SDL.vkGetInstanceExtensions window
+  logger "extensions required from sdl" windowExtensions
   availableExtensions <-
     toList . fmap extensionName
       <$> vulkanResultCheck
         (enumerateInstanceExtensionProperties Nothing)
+  let requiredExtensions' =
+        requiredExtensions
+          <> windowExtensions
   checkRequired
-    (throwMIO . MissingRequiredExtension)
+    MissingRequiredExtension
     availableExtensions
-    $ requiredExtensions <> windowExtensions
-  Vector.fromList
-    <$> intersectOptional logger availableExtensions optionalExtensions
+    requiredExtensions'
+  logger "extensions passed check" requiredExtensions'
+  Vector.fromList . (requiredExtensions' <>)
+    <$> intersectOptional
+      "Extensions"
+      availableExtensions
+      optionalExtensions
 
 configureVulkanLayers ::
-  MonadIO m => m (Vector ByteString)
+  (MonadCatch m, MonadIO m) => m (Vector ByteString)
 configureVulkanLayers = do
   availableLayers <-
     toList . fmap layerName
       <$> vulkanResultCheck
         enumerateInstanceLayerProperties
+  logger "availableLayers" availableLayers
   checkRequired
-    (throwMIO . MissingRequiredLayer)
+    MissingRequiredLayer
     availableLayers
     requiredLayers
-  Vector.fromList
-    <$> intersectOptional logger availableLayers optionalLayers
+  logger "layers passed check" requiredLayers
+  Vector.fromList . (requiredLayers <>)
+    <$> intersectOptional "Layers" availableLayers optionalLayers
+
+newVulkanDevice ::
+  (MonadResource m, MonadCatch m) =>
+  Instance ->
+  m Device
+newVulkanDevice vulkanInstance = do
+  physicalDevices <-
+    vulkanResultCheck $
+      enumeratePhysicalDevices vulkanInstance
+  (physicalDevice, deviceExtensions) <-
+    pickVulkanPhysicalDevice physicalDevices
+  logger "selected PhysicalDevice name" . deviceName
+    =<< getPhysicalDeviceProperties physicalDevice
+  logger "DeviceExtensions" deviceExtensions
+  deviceCreateInfo <- configureVulkanDevice physicalDevice
+  withDevice physicalDevice deviceCreateInfo Nothing manageResource
+
+pickVulkanPhysicalDevice ::
+  forall m.
+  (MonadResource m, MonadCatch m) =>
+  Vector PhysicalDevice ->
+  m (PhysicalDevice, Vector ByteString)
+pickVulkanPhysicalDevice physicalDevices = do
+  physicalDevicesHasRequiedExtensions <-
+    rights . toList
+      <$> mapM
+        ( \physicalDevice ->
+            (try @m @SomeException) $
+              do
+                availableDeviceExtensions <-
+                  toList . fmap extensionName
+                    <$> vulkanResultCheck
+                      ( enumerateDeviceExtensionProperties
+                          physicalDevice
+                          Nothing
+                      )
+                checkRequired
+                  MissingRequiredPhysicalDeviceExtensions
+                  availableDeviceExtensions
+                  requiredDeviceExtensions
+                totalMemory <-
+                  sum . fmap size . memoryHeaps
+                    <$> getPhysicalDeviceMemoryProperties
+                      physicalDevice
+                pure
+                  ( totalMemory,
+                    ( physicalDevice,
+                      availableDeviceExtensions
+                    )
+                  )
+        )
+        physicalDevices
+  when (null physicalDevicesHasRequiedExtensions) $
+    throw $
+      NoPhysicalDeviceWithRequiredExtensions requiredExtensions
+  let (selectedPhysicalDevice, availableDeviceExtensions) =
+        snd $
+          maximumBy
+            (comparing fst)
+            physicalDevicesHasRequiedExtensions
+  (,) selectedPhysicalDevice
+    . Vector.fromList
+    . (requiredDeviceExtensions <>)
+    <$> intersectOptional
+      "Device Extensions"
+      availableDeviceExtensions
+      optionalDeviceExtensions
+
+configureVulkanDevice ::
+  (MonadResource m, MonadCatch m) =>
+  PhysicalDevice ->
+  m (DeviceCreateInfo '[])
+configureVulkanDevice physicalDevice = do
+  queueFamilyProperties <-
+    getPhysicalDeviceQueueFamilyProperties physicalDevice
+  -- unless
+  --   ( isFlagged
+  --       QUEUE_GRAPHICS_BIT
+  --       $ queueFlags queueFamilyProperties
+  --   ) $ throw
+  error "not implemented"
 
 -- sdl
+initSDL :: MonadResource m => m ()
+initSDL = do
+  manageResource_
+    (SDL.initialize [SDL.InitVideo, SDL.InitEvents])
+    SDL.quit
+
 newSDLWindow ::
-  (MonadManaged m, MonadIO m) =>
+  (MonadResource m, MonadIO m) =>
   Text ->
   SDL.WindowConfig ->
   (SDL.Window -> m ()) ->
   m ()
 newSDLWindow title config windowAction = do
   window <-
-    allocate
+    manageResource
       (SDL.createWindow title config)
       SDL.destroyWindow
-  sdlLoop $ windowAction window
+  -- TODO: 最後にloopを有効化
+  -- sdlLoop $ windowAction window
+  windowAction window
 
 sdlLoop :: MonadIO m => m () -> m ()
 sdlLoop action = do
@@ -195,11 +315,20 @@ sdlLoop action = do
     isQ SDL.Event {SDL.eventPayload = SDL.QuitEvent} = True
     isQ _ = False
 
-initSDL :: MonadManaged m => m ()
-initSDL = do
-  allocate_
-    (SDL.initialize [SDL.InitVideo, SDL.InitEvents])
-    SDL.quit
+newSDLWindowVulkanSurface ::
+  MonadResource m =>
+  SDL.Window ->
+  Instance ->
+  m SurfaceKHR
+newSDLWindowVulkanSurface window vulkanInstance =
+  manageResource
+    ( SurfaceKHR
+        <$> SDL.vkCreateSurface
+          window
+          (castPtr $ instanceHandle vulkanInstance)
+    )
+    $ \surface ->
+      destroySurfaceKHR vulkanInstance surface Nothing
 
 -- utility
 instance Exception Result
@@ -207,44 +336,62 @@ instance Exception Result
 data Error
   = MissingRequiredExtension ByteString
   | MissingRequiredLayer ByteString
+  | MissingRequiredDeviceExtension ByteString
+  | MissingRequiredPhysicalDeviceExtensions ByteString
+  | NoPhysicalDeviceWithRequiredExtensions [ByteString]
   | OtherError
   deriving (Show, Eq)
 
 instance Exception Error
 
 vulkanResultCheck ::
-  MonadIO m => m (Result, a) -> m a
+  MonadCatch m => m (Result, a) -> m a
 vulkanResultCheck act = act >>= check
   where
     check (SUCCESS, x) = pure x
-    check (err, _) = throwMIO err
+    check (err, _) = throw err
 
 intersectOptional ::
-  MonadIO m => Eq a => (a -> m ()) -> [a] -> [a] -> m [a]
-intersectOptional log available optional =
+  MonadIO m => (Show a, Eq a) => String -> [a] -> [a] -> m [a]
+intersectOptional typeName available optional =
   let (present, missing) = partition (`elem` available) optional
-   in present <$ mapM_ log missing
+   in present <$ case missing of
+        [] -> pure ()
+        _ -> logger ("Missing optional " <> typeName) missing
 
 checkRequired ::
-  (MonadIO m, Show a, Eq a) => (a -> m ()) -> [a] -> [a] -> m ()
-checkRequired throw available required =
-  let missing = filter (`elem` available) required
+  (MonadCatch m, Eq a, Exception e) =>
+  (a -> e) ->
+  [a] ->
+  [a] ->
+  m ()
+checkRequired wrap available required =
+  let missing = getMissing available required
    in case missing of
         [] -> pure ()
-        missing -> mapM_ throw missing
+        missing -> mapM_ (throw . wrap) missing
+
+getMissing :: Eq a => [a] -> [a] -> [a]
+getMissing available =
+  filter (`notElem` available)
+
+isFlagged :: Bits a => a -> a -> Bool
+isFlagged flagBit flag = zeroBits /= flagBit .&. flag
 
 stringConvert :: MonadIO m => [CString] -> m [ByteString]
 stringConvert = liftIO . traverse BS.packCString
 
-logger :: (MonadIO m, Show a) => a -> m ()
-logger = liftIO . print
+logger :: (MonadIO m, Show a) => String -> a -> m ()
+logger message =
+  liftIO
+    . (*>)
+      (putStr (message <> " "))
+    . print
 
-throwMIO :: MonadIO m => Exception e => e -> m a
-throwMIO = liftIO . throwIO
+manageResource ::
+  MonadResource m => IO a -> (a -> IO ()) -> m a
+-- manageResource alloc free = managed (bracket alloc free)
+manageResource alloc free = snd <$> allocate alloc free
 
-allocate ::
-  MonadManaged m => IO a -> (a -> IO ()) -> m a
-allocate alloc free = managed (bracket alloc free)
-
-allocate_ :: MonadManaged m => IO a -> IO () -> m a
-allocate_ alloc = allocate alloc . const
+manageResource_ :: MonadResource m => IO a -> IO () -> m a
+manageResource_ alloc = manageResource alloc . const

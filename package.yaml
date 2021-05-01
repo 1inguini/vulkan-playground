@@ -21,8 +21,8 @@ description:         Please see the README on GitHub at <https://github.com/1ing
 
 dependencies:
 - base >= 4.7 && < 5
-# - resourcet
-- managed
+- resourcet
+# - managed
 # - mtl
 - safe-exceptions
 # - unliftio-core
@@ -31,6 +31,7 @@ dependencies:
 - vector
 - sdl2
 - vulkan
+- vulkan-utils
 
 library:
   source-dirs: src
@@ -79,14 +80,14 @@ default-extensions:
 - PatternSynonyms
 # - PolyKinds
 # - QuantifiedConstraints
-# - RankNTypes
+- RankNTypes
 # - RecordWildCards
 # - RoleAnnotations
-# - ScopedTypeVariables
+- ScopedTypeVariables
 # - StandaloneDeriving
 # - Strict
 # - TupleSections
-# - TypeApplications
+- TypeApplications
 # - TypeFamilyDependencies
 # - TypeOperators
 # - TypeSynonymInstances

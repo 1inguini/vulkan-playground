@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: e5cd63d2578cdcb1f613c2a7a59641c105ec16cc42d06da51fa3200c0026f6e7
+-- hash: 7c5638f71edddc59a4747059322b93523e1bf9a8a64391dd3915edb51567b239
 
 name:           vulkan-playground
 version:        0.1.0.0
@@ -32,16 +32,17 @@ library
       Paths_vulkan_playground
   hs-source-dirs:
       src
-  default-extensions: DataKinds OverloadedStrings PatternSynonyms
+  default-extensions: DataKinds OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables TypeApplications
   build-depends:
       base >=4.7 && <5
     , bytestring
-    , managed
+    , resourcet
     , safe-exceptions
     , sdl2
     , text
     , vector
     , vulkan
+    , vulkan-utils
   default-language: Haskell2010
 
 executable vulkan-playground-exe
@@ -50,18 +51,19 @@ executable vulkan-playground-exe
       Paths_vulkan_playground
   hs-source-dirs:
       app
-  default-extensions: DataKinds OverloadedStrings PatternSynonyms
+  default-extensions: DataKinds OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables TypeApplications
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
     , bytestring
-    , managed
+    , resourcet
     , safe-exceptions
     , sdl2
     , text
     , vector
     , vulkan
     , vulkan-playground
+    , vulkan-utils
   default-language: Haskell2010
 
 test-suite vulkan-playground-test
@@ -71,16 +73,17 @@ test-suite vulkan-playground-test
       Paths_vulkan_playground
   hs-source-dirs:
       test
-  default-extensions: DataKinds OverloadedStrings PatternSynonyms
+  default-extensions: DataKinds OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables TypeApplications
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
     , bytestring
-    , managed
+    , resourcet
     , safe-exceptions
     , sdl2
     , text
     , vector
     , vulkan
     , vulkan-playground
+    , vulkan-utils
   default-language: Haskell2010
