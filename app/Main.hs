@@ -1,6 +1,6 @@
 module Main where
 
-import Control.Exception.Safe (Exception, MonadCatch, SomeException (SomeException), bracket, throw, throwIO, try)
+import Control.Exception.Safe (Exception, MonadCatch, MonadThrow, SomeException (SomeException), bracket, throw, throwIO, try)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Resource (MonadUnliftIO)
@@ -15,7 +15,7 @@ import Data.Ord (comparing)
 import Data.String (IsString)
 import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector (elemIndices, filter, filterM, findIndices, fromList, generate, length, maximumBy)
+import qualified Data.Vector as Vector (elemIndices, filter, filterM, findIndex, findIndices, foldM, fromList, generate, length, maximumBy, singleton)
 import Foreign (Word32, Word64, castPtr)
 import Foreign.C (CInt)
 import Foreign.C.String (CString)
@@ -23,8 +23,8 @@ import qualified SDL (Event (Event, eventPayload), EventPayload (QuitEvent), Ini
 import qualified SDL as SDLT
 import qualified SDL.Video.Vulkan as SDL (vkCreateSurface, vkGetInstanceExtensions, vkLoadLibrary, vkUnloadLibrary)
 import UnliftIO.Resource (MonadResource, allocate, runResourceT)
-import Vulkan (ApplicationInfo (apiVersion, applicationName, applicationVersion, engineName), DebugUtilsMessageSeverityFlagBitsEXT (DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT), DebugUtilsMessageTypeFlagBitsEXT (DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT), DebugUtilsMessengerCreateInfoEXT (DebugUtilsMessengerCreateInfoEXT, messageSeverity, messageType, pfnUserCallback), Device, DeviceCreateInfo (DeviceCreateInfo), ExtensionProperties (extensionName), ImageSwapchainCreateInfoKHR (swapchain), Instance (instanceHandle), InstanceCreateInfo (InstanceCreateInfo, applicationInfo, enabledExtensionNames, enabledLayerNames), MemoryHeap (size), PhysicalDevice (PhysicalDevice), PhysicalDeviceMemoryProperties (memoryHeaps), QueueFamilyProperties (queueCount), QueueFlagBits (QUEUE_GRAPHICS_BIT), Result (SUCCESS), ScreenSurfaceCreateInfoQNX (window), SurfaceKHR (SurfaceKHR), SwapchainKHR, ValidationFeatureEnableEXT (VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT), ValidationFeaturesEXT, destroySurfaceKHR, deviceName, enabledValidationFeatures, enumerateDeviceExtensionProperties, enumerateInstanceExtensionProperties, enumerateInstanceLayerProperties, enumeratePhysicalDevices, getPhysicalDeviceMemoryProperties, getPhysicalDeviceProperties, getPhysicalDeviceQueueFamilyProperties, getPhysicalDeviceSurfaceSupportKHR, layerName, message, queueFlags, submitDebugUtilsMessageEXT, withDebugUtilsMessengerEXT, withDevice, withInstance, withSwapchainKHR, pattern API_VERSION_1_0, pattern EXT_DEBUG_UTILS_EXTENSION_NAME, pattern EXT_VALIDATION_FEATURES_EXTENSION_NAME, pattern KHR_SWAPCHAIN_EXTENSION_NAME)
-import Vulkan.CStruct.Extends (pattern (:&), pattern (::&))
+import Vulkan (ApplicationInfo (apiVersion, applicationName, applicationVersion, engineName), DebugUtilsMessageSeverityFlagBitsEXT (DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT), DebugUtilsMessageTypeFlagBitsEXT (DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT), DebugUtilsMessengerCreateInfoEXT (DebugUtilsMessengerCreateInfoEXT, messageSeverity, messageType, pfnUserCallback), Device, DeviceCreateInfo (DeviceCreateInfo, enabledExtensionNames, queueCreateInfos), DeviceQueueCreateInfo (DeviceQueueCreateInfo, queueFamilyIndex, queuePriorities), ExtensionProperties (extensionName), ImageSwapchainCreateInfoKHR (swapchain), Instance (instanceHandle), InstanceCreateInfo (InstanceCreateInfo, applicationInfo, enabledExtensionNames, enabledLayerNames), MemoryHeap (size), PhysicalDevice (PhysicalDevice), PhysicalDeviceMemoryProperties (memoryHeaps), QueueFamilyProperties (queueCount), QueueFlagBits (QUEUE_GRAPHICS_BIT), Result (SUCCESS), ScreenSurfaceCreateInfoQNX (window), SurfaceKHR (SurfaceKHR), SwapchainKHR, ValidationFeatureEnableEXT (VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT), ValidationFeaturesEXT, destroySurfaceKHR, deviceName, enabledValidationFeatures, enumerateDeviceExtensionProperties, enumerateInstanceExtensionProperties, enumerateInstanceLayerProperties, enumeratePhysicalDevices, getPhysicalDeviceMemoryProperties, getPhysicalDeviceProperties, getPhysicalDeviceQueueFamilyProperties, getPhysicalDeviceSurfaceSupportKHR, layerName, message, queueFlags, submitDebugUtilsMessageEXT, withDebugUtilsMessengerEXT, withDevice, withInstance, withSwapchainKHR, pattern API_VERSION_1_0, pattern EXT_DEBUG_UTILS_EXTENSION_NAME, pattern EXT_VALIDATION_FEATURES_EXTENSION_NAME, pattern KHR_SWAPCHAIN_EXTENSION_NAME)
+import Vulkan.CStruct.Extends (SomeStruct (SomeStruct), pattern (:&), pattern (::&))
 import Vulkan.Extensions (ValidationFeaturesEXT (ValidationFeaturesEXT))
 import Vulkan.Utils.Debug (debugCallbackPtr)
 import Vulkan.Zero (zero)
@@ -113,6 +113,7 @@ newVulkanWindow title config windowAction =
       DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
       zero {message = "Hello Vulkan from debug"}
     surface <- newSDLWindowVulkanSurface window vulkanInstance
+    device <- newVulkanDevice surface vulkanInstance
     -- device <- newVulkanDevice vulkanInstance
     -- swapchain <- withSwapchainKHR device zero Nothing manageResource
     -- windowAction window swapchain
@@ -212,33 +213,58 @@ newVulkanDevice surface vulkanInstance = do
   physicalDevices <-
     vulkanResultCheck $
       enumeratePhysicalDevices vulkanInstance
-  (physicalDevice, deviceCreateInfo) <-
+  ( physicalDevice,
+    deviceExtensions,
+    graphicsQueueFamilyIndex,
+    presentQueueFamilyIndex
+    ) <-
     pickAndConfigureVulkanPhysicalDevice surface physicalDevices
   logger "selected PhysicalDevice name" . deviceName
     =<< getPhysicalDeviceProperties physicalDevice
+  let deviceCreateInfo =
+        zero
+          { queueCreateInfos = do
+              index <-
+                if graphicsQueueFamilyIndex == presentQueueFamilyIndex
+                  then Vector.singleton graphicsQueueFamilyIndex
+                  else
+                    Vector.fromList
+                      [graphicsQueueFamilyIndex, presentQueueFamilyIndex]
+              pure $
+                SomeStruct $
+                  zero
+                    { queueFamilyIndex = index,
+                      queuePriorities = Vector.singleton 1
+                    },
+            enabledExtensionNames = deviceExtensions
+          }
   logger "DeviceCreateInfo" deviceCreateInfo
-  withDevice physicalDevice deviceCreateInfo Nothing manageResource
+  device <-
+    withDevice physicalDevice deviceCreateInfo Nothing manageResource
+  logger "created Vulkan Device" device
+  pure device
 
 pickAndConfigureVulkanPhysicalDevice ::
   forall m.
   (MonadResource m, MonadCatch m) =>
   SurfaceKHR ->
   Vector PhysicalDevice ->
-  m (PhysicalDevice, DeviceCreateInfo '[])
+  m (PhysicalDevice, Vector ByteString, Word32, Word32)
 pickAndConfigureVulkanPhysicalDevice surface physicalDevices = do
-  physicalDevicesHasRequiedExtensions <-
+  physicalDevicesPassed <-
     rights . toList
       <$> mapM
         ( \physicalDevice ->
-            (try @m @SomeException) $
+            (try @m @Error) $
               do
                 queueFamilyProperties <-
                   getPhysicalDeviceQueueFamilyProperties
                     physicalDevice
-                let graphicsQueuesIndices :: Vector Word32
-                    graphicsQueuesIndices =
-                      fromIntegral
-                        <$> Vector.findIndices
+                graphicsQueueFamilyIndex <-
+                  fromIntegral @Int @Word32
+                    <$> headThrow
+                      NoGraphicsQueue
+                      ( Vector.findIndex
                           ( \vulkanQueue ->
                               isFlagged
                                 QUEUE_GRAPHICS_BIT
@@ -246,17 +272,29 @@ pickAndConfigureVulkanPhysicalDevice surface physicalDevices = do
                                 && (0 < queueCount vulkanQueue)
                           )
                           queueFamilyProperties
-                presentQueuesIndices <-
-                  Vector.filterM
-                    ( \queueIndex ->
-                        getPhysicalDeviceSurfaceSupportKHR
-                          physicalDevice
-                          queueIndex
-                          surface
-                    )
-                    $ Vector.generate
-                      (Vector.length queueFamilyProperties)
-                      fromIntegral
+                      )
+                presentQueueFamilyIndex <-
+                  headThrow NoPresentQueue
+                    =<< Vector.foldM
+                      ( \mayPassedIndex queueIndex ->
+                          case mayPassedIndex of
+                            Nothing -> do
+                              hasPresent <-
+                                getPhysicalDeviceSurfaceSupportKHR
+                                  physicalDevice
+                                  queueIndex
+                                  surface
+                              pure $
+                                if hasPresent
+                                  then Just queueIndex
+                                  else Nothing
+                            justIndex -> pure justIndex
+                      )
+                      Nothing
+                      ( Vector.generate
+                          (Vector.length queueFamilyProperties)
+                          fromIntegral
+                      )
                 availableDeviceExtensions <-
                   checkDeviceExtensions physicalDevice
                 totalMemory <-
@@ -266,19 +304,25 @@ pickAndConfigureVulkanPhysicalDevice surface physicalDevices = do
                 pure
                   ( totalMemory,
                     ( physicalDevice,
-                      availableDeviceExtensions
+                      availableDeviceExtensions,
+                      graphicsQueueFamilyIndex,
+                      presentQueueFamilyIndex
                     )
                   )
         )
         physicalDevices
-  when (null physicalDevicesHasRequiedExtensions) $
+  when (null physicalDevicesPassed) $
     throw $
       NoPhysicalDeviceWithRequiredExtensions requiredExtensions
-  let (selectedPhysicalDevice, availableDeviceExtensions) =
-        snd $
-          maximumBy
-            (comparing fst)
-            physicalDevicesHasRequiedExtensions
+  let ( selectedPhysicalDevice,
+        availableDeviceExtensions,
+        graphicsQueueFamilyIndex,
+        presentQueuefamilyIndex
+        ) =
+          snd $
+            maximumBy
+              (comparing fst)
+              physicalDevicesPassed
   selectedDeviceExtensions <-
     Vector.fromList
       . (requiredDeviceExtensions <>)
@@ -286,7 +330,12 @@ pickAndConfigureVulkanPhysicalDevice surface physicalDevices = do
         "Device Extensions"
         availableDeviceExtensions
         optionalDeviceExtensions
-  undefined
+  pure
+    ( selectedPhysicalDevice,
+      selectedDeviceExtensions,
+      graphicsQueueFamilyIndex,
+      presentQueuefamilyIndex
+    )
 
 checkDeviceExtensions ::
   (MonadCatch m, MonadIO m) =>
@@ -375,6 +424,8 @@ data Error
   | MissingRequiredDeviceExtension ByteString
   | MissingRequiredPhysicalDeviceExtensions ByteString
   | NoPhysicalDeviceWithRequiredExtensions [ByteString]
+  | NoGraphicsQueue
+  | NoPresentQueue
   | OtherError
   deriving (Show, Eq)
 
@@ -394,6 +445,13 @@ intersectOptional typeName available optional =
    in present <$ case missing of
         [] -> pure ()
         _ -> logger ("Missing optional " <> typeName) missing
+
+headThrow ::
+  (Exception e, Foldable f, MonadThrow m) => e -> f a -> m a
+headThrow err xs =
+  case toList xs of
+    [] -> throw err
+    (x : _) -> pure x
 
 checkRequired ::
   (MonadCatch m, Eq a, Exception e) =>

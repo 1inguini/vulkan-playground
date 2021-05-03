@@ -65,7 +65,7 @@ default-extensions:
 # - DeriveFunctor
 # - DeriveTraversable
 # - DerivingStrategies
-# - DuplicateRecordFields
+- DuplicateRecordFields
 # - FlexibleContexts
 # - FlexibleInstances
 # - GADTs

@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.34.4.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 7c5638f71edddc59a4747059322b93523e1bf9a8a64391dd3915edb51567b239
+-- hash: 10dc34a13d6bf5dedaa899cdeaeb58fbe89b8e15162edef3a1fe77f6b56f3dce
 
 name:           vulkan-playground
 version:        0.1.0.0
@@ -32,7 +32,14 @@ library
       Paths_vulkan_playground
   hs-source-dirs:
       src
-  default-extensions: DataKinds OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables TypeApplications
+  default-extensions:
+      DataKinds
+      DuplicateRecordFields
+      OverloadedStrings
+      PatternSynonyms
+      RankNTypes
+      ScopedTypeVariables
+      TypeApplications
   build-depends:
       base >=4.7 && <5
     , bytestring
@@ -51,7 +58,14 @@ executable vulkan-playground-exe
       Paths_vulkan_playground
   hs-source-dirs:
       app
-  default-extensions: DataKinds OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables TypeApplications
+  default-extensions:
+      DataKinds
+      DuplicateRecordFields
+      OverloadedStrings
+      PatternSynonyms
+      RankNTypes
+      ScopedTypeVariables
+      TypeApplications
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
@@ -73,7 +87,14 @@ test-suite vulkan-playground-test
       Paths_vulkan_playground
   hs-source-dirs:
       test
-  default-extensions: DataKinds OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables TypeApplications
+  default-extensions:
+      DataKinds
+      DuplicateRecordFields
+      OverloadedStrings
+      PatternSynonyms
+      RankNTypes
+      ScopedTypeVariables
+      TypeApplications
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
