@@ -23,7 +23,7 @@ import qualified SDL (Event (Event, eventPayload), EventPayload (QuitEvent), Ini
 import qualified SDL as SDLT
 import qualified SDL.Video.Vulkan as SDL (vkCreateSurface, vkGetInstanceExtensions, vkLoadLibrary, vkUnloadLibrary)
 import UnliftIO.Resource (MonadResource, allocate, runResourceT)
-import Vulkan (ApplicationInfo (apiVersion, applicationName, applicationVersion, engineName), DebugUtilsMessageSeverityFlagBitsEXT (DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT), DebugUtilsMessageTypeFlagBitsEXT (DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT), DebugUtilsMessengerCreateInfoEXT (DebugUtilsMessengerCreateInfoEXT, messageSeverity, messageType, pfnUserCallback), Device, DeviceCreateInfo (DeviceCreateInfo, enabledExtensionNames, queueCreateInfos), DeviceQueueCreateInfo (DeviceQueueCreateInfo, queueFamilyIndex, queuePriorities), ExtensionProperties (extensionName), ImageSwapchainCreateInfoKHR (swapchain), Instance (instanceHandle), InstanceCreateInfo (InstanceCreateInfo, applicationInfo, enabledExtensionNames, enabledLayerNames), MemoryHeap (size), PhysicalDevice (PhysicalDevice), PhysicalDeviceMemoryProperties (memoryHeaps), QueueFamilyProperties (queueCount), QueueFlagBits (QUEUE_GRAPHICS_BIT), Result (SUCCESS), ScreenSurfaceCreateInfoQNX (window), SurfaceKHR (SurfaceKHR), SwapchainKHR, ValidationFeatureEnableEXT (VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT), ValidationFeaturesEXT, destroySurfaceKHR, deviceName, enabledValidationFeatures, enumerateDeviceExtensionProperties, enumerateInstanceExtensionProperties, enumerateInstanceLayerProperties, enumeratePhysicalDevices, getPhysicalDeviceMemoryProperties, getPhysicalDeviceProperties, getPhysicalDeviceQueueFamilyProperties, getPhysicalDeviceSurfaceSupportKHR, layerName, message, queueFlags, submitDebugUtilsMessageEXT, withDebugUtilsMessengerEXT, withDevice, withInstance, withSwapchainKHR, pattern API_VERSION_1_0, pattern EXT_DEBUG_UTILS_EXTENSION_NAME, pattern EXT_VALIDATION_FEATURES_EXTENSION_NAME, pattern KHR_SWAPCHAIN_EXTENSION_NAME)
+import Vulkan (ApplicationInfo (apiVersion, applicationName, applicationVersion, engineName), ColorSpaceKHR (COLOR_SPACE_SRGB_NONLINEAR_KHR), DebugUtilsMessageSeverityFlagBitsEXT (DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT, DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT), DebugUtilsMessageTypeFlagBitsEXT (DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT, DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT), DebugUtilsMessengerCreateInfoEXT (DebugUtilsMessengerCreateInfoEXT, messageSeverity, messageType, pfnUserCallback), Device (deviceHandle), DeviceCreateInfo (DeviceCreateInfo, enabledExtensionNames, queueCreateInfos), DeviceQueueCreateInfo (DeviceQueueCreateInfo, queueFamilyIndex, queuePriorities), ExtensionProperties (extensionName), Format (FORMAT_B8G8R8A8_UNORM), ImageSwapchainCreateInfoKHR (swapchain), Instance (instanceHandle), InstanceCreateInfo (InstanceCreateInfo, applicationInfo, enabledExtensionNames, enabledLayerNames), MemoryHeap (size), PhysicalDevice (PhysicalDevice), PhysicalDeviceMemoryProperties (memoryHeaps), QueueFamilyProperties (queueCount), QueueFlagBits (QUEUE_GRAPHICS_BIT), Result (SUCCESS), ScreenSurfaceCreateInfoQNX (window), SharingMode (SHARING_MODE_CONCURRENT, SHARING_MODE_EXCLUSIVE), SurfaceCapabilities2KHR (surfaceCapabilities), SurfaceCapabilitiesKHR (minImageCount), SurfaceFormatKHR (colorSpace, format), SurfaceKHR (SurfaceKHR), SwapchainCreateInfoKHR (SwapchainCreateInfoKHR, minImageCount, surface), SwapchainKHR, ValidationFeatureEnableEXT (VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT), ValidationFeaturesEXT, destroySurfaceKHR, deviceHandle, deviceName, enabledValidationFeatures, enumerateDeviceExtensionProperties, enumerateInstanceExtensionProperties, enumerateInstanceLayerProperties, enumeratePhysicalDevices, getPhysicalDeviceMemoryProperties, getPhysicalDeviceProperties, getPhysicalDeviceQueueFamilyProperties, getPhysicalDeviceSurfaceCapabilitiesKHR, getPhysicalDeviceSurfaceFormatsKHR, getPhysicalDeviceSurfaceSupportKHR, layerName, message, queueFlags, submitDebugUtilsMessageEXT, withDebugUtilsMessengerEXT, withDevice, withInstance, withSwapchainKHR, pattern API_VERSION_1_0, pattern EXT_DEBUG_UTILS_EXTENSION_NAME, pattern EXT_VALIDATION_FEATURES_EXTENSION_NAME, pattern KHR_SWAPCHAIN_EXTENSION_NAME)
 import Vulkan.CStruct.Extends (SomeStruct (SomeStruct), pattern (:&), pattern (::&))
 import Vulkan.Extensions (ValidationFeaturesEXT (ValidationFeaturesEXT))
 import Vulkan.Utils.Debug (debugCallbackPtr)
@@ -51,6 +51,13 @@ requiredLayers, optionalLayers :: (IsString a, Eq a) => [a]
 requiredLayers = []
 optionalLayers = ["VK_LAYER_KHRONOS_validation"]
 
+desiredSurfaceFormat :: SurfaceFormatKHR
+desiredSurfaceFormat =
+  zero
+    { format = FORMAT_B8G8R8A8_UNORM,
+      colorSpace = COLOR_SPACE_SRGB_NONLINEAR_KHR
+    }
+
 requiredDeviceExtensions, optionalDeviceExtensions :: (Eq a, IsString a) => [a]
 requiredDeviceExtensions = [KHR_SWAPCHAIN_EXTENSION_NAME]
 optionalDeviceExtensions = []
@@ -60,7 +67,8 @@ debugUtilsMessengerCreateInfoEXT ::
 debugUtilsMessengerCreateInfoEXT =
   zero
     { messageSeverity =
-        DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+        DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
+          .|. DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
           .|. DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
       messageType =
         DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
@@ -109,15 +117,33 @@ newVulkanWindow title config windowAction =
       manageResource
     submitDebugUtilsMessageEXT
       vulkanInstance
-      DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+      DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
       DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
       zero {message = "Hello Vulkan from debug"}
     surface <- newSDLWindowVulkanSurface window vulkanInstance
-    device <- newVulkanDevice surface vulkanInstance
-    -- device <- newVulkanDevice vulkanInstance
-    -- swapchain <- withSwapchainKHR device zero Nothing manageResource
-    -- windowAction window swapchain
-    pure ()
+    ( physicalDevice,
+      deviceCreateInfo,
+      swapchainCreateInfo
+      ) <-
+      pickVulkanPhysicalDevice vulkanInstance surface
+    -- device <-
+    --   newVulkanDevice
+    --     vulkanInstance
+    --     physicalDevice
+    --     deviceExtensions
+    --     graphicsQueueFamilyIndex
+    --     presentQueueFamilyIndex
+    device <- withDevice physicalDevice deviceCreateInfo Nothing manageResource
+    logger "created Vulkan Device" $ deviceHandle device
+    -- swapchain <-
+    --   newVulkanSwapchain
+    --     surface
+    --     physicalDevice
+    --     graphicsQueueFamilyIndex
+    --     presentQueueFamilyIndex
+    swapchain <- withSwapchainKHR device swapchainCreateInfo Nothing manageResource
+    logger "created Vulkan" swapchain
+    windowAction window swapchain
 
 -- instantiate vulkan instance
 newVulkanInstance ::
@@ -127,9 +153,9 @@ newVulkanInstance ::
 newVulkanInstance window = do
   instanceCreateInfo <- configureVulkanInstance window
   logger "instanceCreateInfo" instanceCreateInfo
-  ins <- withInstance instanceCreateInfo Nothing manageResource
-  liftIO $ putStrLn "new Vulkan Instance"
-  pure ins
+  vulkanInstance <- withInstance instanceCreateInfo Nothing manageResource
+  logger "created Vulkan Instance" $ instanceHandle vulkanInstance
+  pure vulkanInstance
 
 configureVulkanInstance ::
   (MonadIO m, MonadCatch m) =>
@@ -204,23 +230,96 @@ configureVulkanLayers = do
   Vector.fromList . (requiredLayers <>)
     <$> intersectOptional "Layers" availableLayers optionalLayers
 
-newVulkanDevice ::
+-- newVulkanDevice ::
+--   (MonadResource m, MonadCatch m) =>
+--   Instance ->
+--   PhysicalDevice ->
+--   Vector ByteString ->
+--   Word32 ->
+--   Word32 ->
+--   m Device
+-- newVulkanDevice vulkanInstance physicalDevice deviceExtensions graphicsQueueFamilyIndex presentQueueFamilyIndex = do
+--   logger "selected PhysicalDevice name" . deviceName
+--     =<< getPhysicalDeviceProperties physicalDevice
+--   logger "graphicsQueueFamilyIndex" graphicsQueueFamilyIndex
+--   logger "presentQueueFamilyIndex" presentQueueFamilyIndex
+--   let deviceCreateInfo =
+--         zero
+--           { queueCreateInfos = do
+--               index <-
+--                 if graphicsQueueFamilyIndex == presentQueueFamilyIndex
+--                   then Vector.singleton graphicsQueueFamilyIndex
+--                   else
+--                     Vector.fromList
+--                       [graphicsQueueFamilyIndex, presentQueueFamilyIndex]
+--               pure $
+--                 SomeStruct $
+--                   zero
+--                     { queueFamilyIndex = index,
+--                       queuePriorities = Vector.singleton 1
+--                     },
+--             enabledExtensionNames = deviceExtensions
+--           }
+--   logger "DeviceCreateInfo" deviceCreateInfo
+--   device <-
+--     withDevice physicalDevice deviceCreateInfo Nothing manageResource
+--   logger "created" $ deviceHandle device
+--   pure device
+
+pickVulkanPhysicalDevice ::
+  forall m.
   (MonadResource m, MonadCatch m) =>
-  SurfaceKHR ->
   Instance ->
-  m Device
-newVulkanDevice surface vulkanInstance = do
+  SurfaceKHR ->
+  -- m (PhysicalDevice, Vector ByteString, Word32, Word32)
+  m (PhysicalDevice, DeviceCreateInfo '[], SwapchainCreateInfoKHR '[])
+pickVulkanPhysicalDevice vulkanInstance surface = do
   physicalDevices <-
     vulkanResultCheck $
       enumeratePhysicalDevices vulkanInstance
-  ( physicalDevice,
-    deviceExtensions,
-    graphicsQueueFamilyIndex,
-    presentQueueFamilyIndex
-    ) <-
-    pickAndConfigureVulkanPhysicalDevice surface physicalDevices
-  logger "selected PhysicalDevice name" . deviceName
-    =<< getPhysicalDeviceProperties physicalDevice
+  physicalDevicesPassed <-
+    rights . toList
+      <$> mapM
+        ( \physicalDevice -> (try @m @Error) $ do
+            logger "examining" . deviceName
+              =<< getPhysicalDeviceProperties physicalDevice
+            logger "SurfaceFormats"
+              =<< getPhysicalDeviceSurfaceFormatsKHR physicalDevice surface
+            ( graphicsQueueFamilyIndex,
+              presentQueueFamilyIndex
+              ) <-
+              checkQueueFamily physicalDevice surface
+            availableDeviceExtensions <-
+              checkDeviceExtensions physicalDevice
+            totalMemory <-
+              sum . fmap size . memoryHeaps
+                <$> getPhysicalDeviceMemoryProperties
+                  physicalDevice
+            pure
+              ( totalMemory,
+                ( physicalDevice,
+                  availableDeviceExtensions,
+                  graphicsQueueFamilyIndex,
+                  presentQueueFamilyIndex
+                )
+              )
+        )
+        physicalDevices
+  when (null physicalDevicesPassed) $
+    throw $
+      NoPhysicalDeviceWithRequiredExtensions requiredExtensions
+  let ( selectedPhysicalDevice,
+        availableDeviceExtensions,
+        graphicsQueueFamilyIndex,
+        presentQueueFamilyIndex
+        ) = snd $ maximumBy (comparing fst) physicalDevicesPassed
+  selectedDeviceExtensions <-
+    Vector.fromList
+      . (requiredDeviceExtensions <>)
+      <$> intersectOptional
+        "Device Extensions"
+        availableDeviceExtensions
+        optionalDeviceExtensions
   let deviceCreateInfo =
         zero
           { queueCreateInfos = do
@@ -236,105 +335,12 @@ newVulkanDevice surface vulkanInstance = do
                     { queueFamilyIndex = index,
                       queuePriorities = Vector.singleton 1
                     },
-            enabledExtensionNames = deviceExtensions
+            enabledExtensionNames = selectedDeviceExtensions
           }
-  logger "DeviceCreateInfo" deviceCreateInfo
-  device <-
-    withDevice physicalDevice deviceCreateInfo Nothing manageResource
-  logger "created Vulkan Device" device
-  pure device
-
-pickAndConfigureVulkanPhysicalDevice ::
-  forall m.
-  (MonadResource m, MonadCatch m) =>
-  SurfaceKHR ->
-  Vector PhysicalDevice ->
-  m (PhysicalDevice, Vector ByteString, Word32, Word32)
-pickAndConfigureVulkanPhysicalDevice surface physicalDevices = do
-  physicalDevicesPassed <-
-    rights . toList
-      <$> mapM
-        ( \physicalDevice ->
-            (try @m @Error) $
-              do
-                queueFamilyProperties <-
-                  getPhysicalDeviceQueueFamilyProperties
-                    physicalDevice
-                graphicsQueueFamilyIndex <-
-                  fromIntegral @Int @Word32
-                    <$> headThrow
-                      NoGraphicsQueue
-                      ( Vector.findIndex
-                          ( \vulkanQueue ->
-                              isFlagged
-                                QUEUE_GRAPHICS_BIT
-                                (queueFlags vulkanQueue)
-                                && (0 < queueCount vulkanQueue)
-                          )
-                          queueFamilyProperties
-                      )
-                presentQueueFamilyIndex <-
-                  headThrow NoPresentQueue
-                    =<< Vector.foldM
-                      ( \mayPassedIndex queueIndex ->
-                          case mayPassedIndex of
-                            Nothing -> do
-                              hasPresent <-
-                                getPhysicalDeviceSurfaceSupportKHR
-                                  physicalDevice
-                                  queueIndex
-                                  surface
-                              pure $
-                                if hasPresent
-                                  then Just queueIndex
-                                  else Nothing
-                            justIndex -> pure justIndex
-                      )
-                      Nothing
-                      ( Vector.generate
-                          (Vector.length queueFamilyProperties)
-                          fromIntegral
-                      )
-                availableDeviceExtensions <-
-                  checkDeviceExtensions physicalDevice
-                totalMemory <-
-                  sum . fmap size . memoryHeaps
-                    <$> getPhysicalDeviceMemoryProperties
-                      physicalDevice
-                pure
-                  ( totalMemory,
-                    ( physicalDevice,
-                      availableDeviceExtensions,
-                      graphicsQueueFamilyIndex,
-                      presentQueueFamilyIndex
-                    )
-                  )
-        )
-        physicalDevices
-  when (null physicalDevicesPassed) $
-    throw $
-      NoPhysicalDeviceWithRequiredExtensions requiredExtensions
-  let ( selectedPhysicalDevice,
-        availableDeviceExtensions,
-        graphicsQueueFamilyIndex,
-        presentQueuefamilyIndex
-        ) =
-          snd $
-            maximumBy
-              (comparing fst)
-              physicalDevicesPassed
-  selectedDeviceExtensions <-
-    Vector.fromList
-      . (requiredDeviceExtensions <>)
-      <$> intersectOptional
-        "Device Extensions"
-        availableDeviceExtensions
-        optionalDeviceExtensions
   pure
     ( selectedPhysicalDevice,
-      selectedDeviceExtensions,
-      graphicsQueueFamilyIndex,
-      presentQueuefamilyIndex
+      deviceCreateInfo,
+      undefined
     )
 
 checkDeviceExtensions ::
@@ -355,19 +361,91 @@ checkDeviceExtensions physicalDevice = do
     requiredDeviceExtensions
   pure availableDeviceExtensions
 
--- configureVulkanDevice ::
+checkQueueFamily ::
+  (MonadCatch m, MonadIO m) =>
+  PhysicalDevice ->
+  SurfaceKHR ->
+  m (Word32, Word32)
+checkQueueFamily physicalDevice surface = do
+  queueFamilyProperties <-
+    getPhysicalDeviceQueueFamilyProperties
+      physicalDevice
+  graphicsQueueFamilyIndex <-
+    fromIntegral @Int @Word32
+      <$> headThrow
+        NoGraphicsQueue
+        ( Vector.findIndex
+            ( \vulkanQueue ->
+                isFlagged
+                  QUEUE_GRAPHICS_BIT
+                  (queueFlags vulkanQueue)
+                  && (0 < queueCount vulkanQueue)
+            )
+            queueFamilyProperties
+        )
+  presentQueueFamilyIndex <-
+    headThrow NoPresentQueue
+      =<< Vector.foldM
+        ( \mayPassedIndex queueIndex ->
+            case mayPassedIndex of
+              Nothing -> do
+                hasPresent <-
+                  getPhysicalDeviceSurfaceSupportKHR
+                    physicalDevice
+                    queueIndex
+                    surface
+                pure $
+                  if hasPresent
+                    then Just queueIndex
+                    else Nothing
+              justIndex -> pure justIndex
+        )
+        Nothing
+        ( Vector.generate
+            (Vector.length queueFamilyProperties)
+            fromIntegral
+        )
+  pure (graphicsQueueFamilyIndex, presentQueueFamilyIndex)
+
+-- checkSurfaceFormat ::
+--   (MonadCatch m, MonadIO m) =>
+--     PhysicalDevice -> SurfaceKHR -> m
+
+-- newVulkanSwapchain ::
 --   (MonadResource m, MonadCatch m) =>
+--   SurfaceKHR ->
 --   PhysicalDevice ->
---   m (DeviceCreateInfo '[])
--- configureVulkanDevice physicalDevice = do
---   queueFamilyProperties <-
---     getPhysicalDeviceQueueFamilyProperties physicalDevice
---   -- unless
---   --   ( isFlagged
---   --       QUEUE_GRAPHICS_BIT
---   --       $ queueFlags queueFamilyProperties
---   --   ) $ throw
---   error "not implemented"
+--   Word32 ->
+--   Word32 ->
+--   m SwapchainKHR
+-- newVulkanSwapchain surface physicalDevice graphicsQueueFamilyIndex presentQueueFamilyIndex = do
+--   undefined
+
+configureVulkanSwapchain ::
+  (MonadResource m, MonadCatch m) =>
+  SurfaceKHR ->
+  PhysicalDevice ->
+  Word32 ->
+  Word32 ->
+  m (SwapchainCreateInfoKHR '[])
+configureVulkanSwapchain surface physicalDevice graphicsQueueFamilyIndex presentQueueFamilyIndex = do
+  surfaceCapabilities <-
+    getPhysicalDeviceSurfaceCapabilitiesKHR
+      physicalDevice
+      surface
+  pure $
+    zero
+      { surface = surface,
+        minImageCount = minImageCount (surfaceCapabilities :: SurfaceCapabilitiesKHR) + 1
+      }
+  where
+    (sharingMode, queueFamilyIndices) =
+      if graphicsQueueFamilyIndex == presentQueueFamilyIndex
+        then (SHARING_MODE_EXCLUSIVE, mempty)
+        else
+          ( SHARING_MODE_CONCURRENT,
+            Vector.fromList [graphicsQueueFamilyIndex, presentQueueFamilyIndex]
+          )
 
 -- sdl
 initSDL :: MonadResource m => m ()
