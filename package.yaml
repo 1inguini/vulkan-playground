@@ -93,3 +93,4 @@ default-extensions:
 # - TypeSynonymInstances
 # - ViewPatterns
 
+- OverloadedLists

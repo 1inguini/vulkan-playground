@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 10dc34a13d6bf5dedaa899cdeaeb58fbe89b8e15162edef3a1fe77f6b56f3dce
+-- hash: 8a1f7af5dd88f9e0f4093d29c88af8eba5b8573475dc13ec24f591b99d09a317
 
 name:           vulkan-playground
 version:        0.1.0.0
@@ -40,6 +40,7 @@ library
       RankNTypes
       ScopedTypeVariables
       TypeApplications
+      OverloadedLists
   build-depends:
       base >=4.7 && <5
     , bytestring
@@ -66,6 +67,7 @@ executable vulkan-playground-exe
       RankNTypes
       ScopedTypeVariables
       TypeApplications
+      OverloadedLists
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
@@ -95,6 +97,7 @@ test-suite vulkan-playground-test
       RankNTypes
       ScopedTypeVariables
       TypeApplications
+      OverloadedLists
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
