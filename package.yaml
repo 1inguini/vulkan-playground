@@ -21,6 +21,7 @@ description:         Please see the README on GitHub at <https://github.com/1ing
 
 dependencies:
 - base >= 4.7 && < 5
+- template-haskell
 - resourcet
 # - managed
 # - mtl
@@ -94,3 +95,4 @@ default-extensions:
 # - ViewPatterns
 
 - OverloadedLists
+- TemplateHaskell
