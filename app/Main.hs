@@ -22,7 +22,7 @@ import Data.Maybe (catMaybes)
 import Data.Ord (comparing)
 import Data.String (IsString)
 import Data.Text (Text)
-import Data.Vector (Vector)
+import Data.Vector (Vector, (!))
 import qualified Data.Vector as Vector
   ( filter,
     findIndex,
@@ -30,6 +30,7 @@ import qualified Data.Vector as Vector
     generate,
     length,
     partition,
+    zip,
   )
 import Foreign (Word32, Word64, castPtr)
 import Foreign.C (CInt)
@@ -85,8 +86,19 @@ import Vulkan
     AttachmentLoadOp (ATTACHMENT_LOAD_OP_CLEAR, ATTACHMENT_LOAD_OP_DONT_CARE),
     AttachmentReference (attachment, layout),
     AttachmentStoreOp (ATTACHMENT_STORE_OP_DONT_CARE, ATTACHMENT_STORE_OP_STORE),
+    BindSparseInfo (signalSemaphores),
+    ClearColorValue (Float32),
+    ClearValue (Color),
     ColorComponentFlagBits (COLOR_COMPONENT_A_BIT, COLOR_COMPONENT_B_BIT, COLOR_COMPONENT_G_BIT, COLOR_COMPONENT_R_BIT),
     ColorSpaceKHR (COLOR_SPACE_SRGB_NONLINEAR_KHR),
+    CommandBuffer (commandBufferHandle),
+    CommandBufferAllocateInfo (commandBufferCount, commandPool, level),
+    CommandBufferBeginInfo (flags),
+    CommandBufferInheritanceRenderPassTransformInfoQCOM (renderArea),
+    CommandBufferLevel (COMMAND_BUFFER_LEVEL_PRIMARY),
+    CommandBufferUsageFlagBits (COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT),
+    CommandPool,
+    CommandPoolCreateInfo (queueFamilyIndex),
     ComponentMapping (a, b, g, r),
     ComponentSwizzle (COMPONENT_SWIZZLE_IDENTITY),
     CompositeAlphaFlagBitsKHR (COMPOSITE_ALPHA_OPAQUE_BIT_KHR),
@@ -112,10 +124,7 @@ import Vulkan
       ( enabledExtensionNames,
         queueCreateInfos
       ),
-    DeviceQueueCreateInfo
-      ( queueFamilyIndex,
-        queuePriorities
-      ),
+    DeviceQueueCreateInfo (queueFamilyIndex, queuePriorities),
     ExtensionProperties (extensionName),
     Extent2D (Extent2D, height, width),
     Format (FORMAT_B8G8R8A8_UNORM),
@@ -123,6 +132,7 @@ import Vulkan
     FramebufferAttachmentImageInfo (layerCount),
     FramebufferCreateInfo (attachments, height, layers, renderPass, width),
     FrontFace (FRONT_FACE_CLOCKWISE),
+    GeometryAABBNV (offset),
     GraphicsPipelineCreateInfo
       ( basePipelineHandle,
         colorBlendState,
@@ -185,6 +195,7 @@ import Vulkan
     PipelineStageFlagBits (PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT),
     PipelineViewportStateCreateInfo (scissors, viewports),
     PolygonMode (POLYGON_MODE_FILL),
+    PresentInfoKHR (imageIndices, swapchains, waitSemaphores),
     PresentModeKHR
       ( PRESENT_MODE_FIFO_KHR,
         PRESENT_MODE_IMMEDIATE_KHR,
@@ -198,12 +209,15 @@ import Vulkan
     QueueFlagBits (QUEUE_GRAPHICS_BIT),
     Rect2D (Rect2D, extent, offset),
     RenderPass,
+    RenderPassBeginInfo (clearValues, framebuffer, renderArea, renderPass),
     RenderPassCreateInfo (attachments, dependencies, subpasses),
     Result (INCOMPLETE, SUCCESS),
     SampleCountFlagBits (SAMPLE_COUNT_1_BIT),
     ShaderModuleCreateInfo (code),
     ShaderStageFlagBits (SHADER_STAGE_FRAGMENT_BIT, SHADER_STAGE_VERTEX_BIT),
     SharingMode (SHARING_MODE_CONCURRENT, SHARING_MODE_EXCLUSIVE),
+    SubmitInfo (commandBuffers, signalSemaphores, waitDstStageMask, waitSemaphores),
+    SubpassContents (SUBPASS_CONTENTS_INLINE),
     SubpassDependency
       ( dstAccessMask,
         dstStageMask,
@@ -243,12 +257,17 @@ import Vulkan
       ),
     ValidationFeaturesEXT (ValidationFeaturesEXT),
     Viewport (Viewport, height, maxDepth, minDepth, width, x, y),
+    acquireNextImageKHR,
+    cmdBindPipeline,
+    cmdDraw,
+    cmdUseRenderPass,
     destroySurfaceKHR,
     enabledValidationFeatures,
     enumerateDeviceExtensionProperties,
     enumerateInstanceExtensionProperties,
     enumerateInstanceLayerProperties,
     enumeratePhysicalDevices,
+    getDeviceQueue,
     getPhysicalDeviceMemoryProperties,
     getPhysicalDeviceProperties,
     getPhysicalDeviceQueueFamilyProperties,
@@ -257,7 +276,12 @@ import Vulkan
     getPhysicalDeviceSurfacePresentModesKHR,
     getPhysicalDeviceSurfaceSupportKHR,
     getSwapchainImagesKHR,
+    queuePresentKHR,
+    queueSubmit,
     submitDebugUtilsMessageEXT,
+    useCommandBuffer,
+    withCommandBuffers,
+    withCommandPool,
     withDebugUtilsMessengerEXT,
     withDevice,
     withFramebuffer,
@@ -266,6 +290,7 @@ import Vulkan
     withInstance,
     withPipelineLayout,
     withRenderPass,
+    withSemaphore,
     withShaderModule,
     withSwapchainKHR,
     pattern API_VERSION_1_0,
@@ -364,8 +389,8 @@ main = runResourceT $ do
         SDL.windowResizable = False,
         SDL.windowInitialSize = SDL.V2 windowWidth windowHeight
       }
-    $ \window swapchain ->
-      pure ()
+    -- $ \window swapchain ->
+    --   pure ()
 
 drawTriangle :: MonadResource m => m ()
 drawTriangle = do
@@ -375,41 +400,84 @@ newVulkanWindow ::
   (MonadResource m, MonadCatch m, MonadIO m) =>
   Text ->
   SDL.WindowConfig ->
-  (SDL.Window -> SwapchainKHR -> m ()) ->
+  -- (SDL.Window -> SwapchainKHR -> m ()) ->
   m ()
-newVulkanWindow title config windowAction =
-  newSDLWindow title config $ \window -> do
-    vulkanInstance <- newVulkanInstance window
-    withDebugUtilsMessengerEXT
-      vulkanInstance
-      debugUtilsMessengerCreateInfoEXT
-      Nothing
-      manageResource
-    submitDebugUtilsMessageEXT
-      vulkanInstance
-      DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
-      DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-      zero {message = "Hello Vulkan from debug"}
-    surface <- newSDLWindowVulkanSurface window vulkanInstance
-    ( physicalDevice,
-      deviceCreateInfo,
-      swapchainCreateInfo@SwapchainCreateInfoKHR {imageFormat = imageFormat, imageExtent = imageExtent}
-      ) <-
-      pickVulkanPhysicalDevice vulkanInstance surface
-    device <- withDevice physicalDevice deviceCreateInfo Nothing manageResource
-    logger "created Vulkan Device" $ deviceHandle device
-    swapchain <- logCreation $ withSwapchainKHR device swapchainCreateInfo Nothing manageResource
-    imageViews <-
-      mapM
-        (newImageView device imageFormat)
-        =<< vulkanResultCheck (getSwapchainImagesKHR device swapchain)
-    renderPass <- newRenderPass device imageFormat
-    pipeline <- newVulkanPipeline device renderPass imageExtent
-    framebuffers <-
-      mapM
-        (newVulkanFramebuffer device renderPass imageExtent)
-        imageViews
-    windowAction window swapchain
+newVulkanWindow title config = do
+  window <- newSDLWindow title config
+  vulkanInstance <- newVulkanInstance window
+  withDebugUtilsMessengerEXT
+    vulkanInstance
+    debugUtilsMessengerCreateInfoEXT
+    Nothing
+    manageResource
+  submitDebugUtilsMessageEXT
+    vulkanInstance
+    DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
+    DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+    zero {message = "Hello Vulkan from debug"}
+  surface <- newSDLWindowVulkanSurface window vulkanInstance
+  ( physicalDevice,
+    deviceCreateInfo,
+    swapchainCreateInfo@SwapchainCreateInfoKHR
+      { imageFormat = imageFormat,
+        imageExtent = imageExtent
+      },
+    graphicsQueueFamilyIndex,
+    presentQueueFamilyIndex
+    ) <-
+    pickVulkanPhysicalDevice vulkanInstance surface
+  device <- withDevice physicalDevice deviceCreateInfo Nothing manageResource
+  graphicsQueue <- getDeviceQueue device graphicsQueueFamilyIndex 0
+  presentQueue <- getDeviceQueue device presentQueueFamilyIndex 0
+  logger "created Vulkan Device" $ deviceHandle device
+  swapchain <- logCreation $ withSwapchainKHR device swapchainCreateInfo Nothing manageResource
+  imageViews <-
+    mapM
+      (newImageView device imageFormat)
+      =<< vulkanResultCheck (getSwapchainImagesKHR device swapchain)
+  renderPass <- newRenderPass device imageFormat
+  pipeline <- newVulkanPipeline device renderPass imageExtent
+  framebuffers <-
+    mapM
+      (newVulkanFramebuffer device renderPass imageExtent)
+      imageViews
+  commandPool <- newVulkanCommandPool device graphicsQueueFamilyIndex
+  commandBufferHandles <-
+    fmap commandBufferHandle
+      <$> newVulkanCommandBuffers
+        device
+        renderPass
+        pipeline
+        framebuffers
+        commandPool
+        imageExtent
+  imageAvailableSemaphore <- withSemaphore device zero Nothing manageResource
+  renderFinishedSemaphore <- withSemaphore device zero Nothing manageResource
+  -- sdlLoop $ do
+  imageIndex <-
+    vulkanResultCheck $
+      acquireNextImageKHR device swapchain maxBound imageAvailableSemaphore zero
+  queueSubmit
+    graphicsQueue
+    [ SomeStruct
+        zero
+          { waitSemaphores = [imageAvailableSemaphore],
+            waitDstStageMask = [PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT],
+            commandBuffers = [commandBufferHandles ! fromIntegral imageIndex],
+            signalSemaphores = [renderFinishedSemaphore]
+          }
+    ]
+    zero
+  vulkanResultCheck $
+    flip (,) ()
+      <$> queuePresentKHR
+        presentQueue
+        zero
+          { waitSemaphores = [renderFinishedSemaphore],
+            swapchains = [swapchain],
+            imageIndices = [imageIndex]
+          }
+  sdlLoop $ pure ()
 
 -- instantiate vulkan instance
 newVulkanInstance ::
@@ -480,7 +548,7 @@ pickVulkanPhysicalDevice ::
   Instance ->
   SurfaceKHR ->
   -- m (PhysicalDevice, Vector ByteString, Word32, Word32)
-  m (PhysicalDevice, DeviceCreateInfo '[], SwapchainCreateInfoKHR '[])
+  m (PhysicalDevice, DeviceCreateInfo '[], SwapchainCreateInfoKHR '[], Word32, Word32)
 pickVulkanPhysicalDevice vulkanInstance surface = do
   physicalDevices <- vulkanResultCheck $ enumeratePhysicalDevices vulkanInstance
   physicalDevicesPassed <-
@@ -553,7 +621,13 @@ pickVulkanPhysicalDevice vulkanInstance surface = do
       presentQueueFamilyIndex
       selectedSurfaceFormat
       selectedPresentMode
-  pure (selectedPhysicalDevice, deviceCreateInfo, swapchainCreateInfo)
+  pure
+    ( selectedPhysicalDevice,
+      deviceCreateInfo,
+      swapchainCreateInfo,
+      graphicsQueueFamilyIndex,
+      presentQueueFamilyIndex
+    )
 
 checkDeviceExtensions ::
   (MonadCatch m, MonadIO m) =>
@@ -673,11 +747,11 @@ newImageView ::
   Image ->
   m ImageView
 newImageView device format image =
-  withImageView device (configureImageView format image) Nothing manageResource
+  logCreation $ withImageView device (configureVulkanImageView format image) Nothing manageResource
 
-configureImageView ::
+configureVulkanImageView ::
   Format -> Image -> ImageViewCreateInfo '[]
-configureImageView format image =
+configureVulkanImageView format image =
   zero
     { image = image,
       viewType = IMAGE_VIEW_TYPE_2D,
@@ -702,11 +776,11 @@ configureImageView format image =
 newRenderPass ::
   MonadResource m => Device -> Format -> m RenderPass
 newRenderPass device format =
-  let renderPassCreateInfo = configureRenderPass format
+  let renderPassCreateInfo = configureVulkanRenderPass format
    in logCreation $ withRenderPass device renderPassCreateInfo Nothing manageResource
 
-configureRenderPass :: Format -> RenderPassCreateInfo '[]
-configureRenderPass format =
+configureVulkanRenderPass :: Format -> RenderPassCreateInfo '[]
+configureVulkanRenderPass format =
   zero
     { attachments =
         [ zero
@@ -856,6 +930,56 @@ configureVulkanFramebuffer device renderPass Extent2D {width = width, height = h
       layers = 1
     }
 
+newVulkanCommandPool :: MonadResource m => Device -> Word32 -> m CommandPool
+newVulkanCommandPool device graphicsQueueFamilyIndex =
+  let commandPoolCreateInfo = configureVulkanCommandPool graphicsQueueFamilyIndex
+   in logCreation $ withCommandPool device commandPoolCreateInfo Nothing manageResource
+
+configureVulkanCommandPool :: Word32 -> CommandPoolCreateInfo
+configureVulkanCommandPool graphicsQueueFamilyIndex =
+  zero {queueFamilyIndex = graphicsQueueFamilyIndex}
+
+newVulkanCommandBuffers ::
+  MonadResource m =>
+  Device ->
+  RenderPass ->
+  Pipeline ->
+  Vector Framebuffer ->
+  CommandPool ->
+  Extent2D ->
+  m (Vector CommandBuffer)
+newVulkanCommandBuffers device renderPass pipeline framebuffers commandPool extent = do
+  let commandBufferAllocateInfo = configureVulkanCommandBuffer framebuffers commandPool
+  commandBuffers <- withCommandBuffers device commandBufferAllocateInfo manageResource
+  logger "created CommandBuffers" $ commandBufferHandle <$> commandBuffers
+  mapM_
+    ( \(framebuffer, commandBuffer) ->
+        useCommandBuffer commandBuffer zero { flags =COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT } $
+          cmdUseRenderPass
+            commandBuffer
+            zero
+              { renderPass = renderPass,
+                framebuffer = framebuffer,
+                renderArea = Rect2D {offset = zero, extent = extent},
+                clearValues = [Color (Float32 0.1 0.1 0.1 0)]
+              }
+            SUBPASS_CONTENTS_INLINE
+            $ do
+              cmdBindPipeline commandBuffer PIPELINE_BIND_POINT_GRAPHICS pipeline
+              cmdDraw commandBuffer 3 1 0 0
+    )
+    $ Vector.zip framebuffers commandBuffers
+  pure commandBuffers
+
+configureVulkanCommandBuffer ::
+  Vector Framebuffer -> CommandPool -> CommandBufferAllocateInfo
+configureVulkanCommandBuffer framebuffers commandPool =
+  zero
+    { commandPool = commandPool,
+      level = COMMAND_BUFFER_LEVEL_PRIMARY,
+      commandBufferCount = fromIntegral $ length framebuffers
+    }
+
 -- sdl
 initSDL :: MonadResource m => m ()
 initSDL =
@@ -867,16 +991,15 @@ newSDLWindow ::
   (MonadResource m, MonadIO m) =>
   Text ->
   SDL.WindowConfig ->
-  (SDL.Window -> m ()) ->
-  m ()
-newSDLWindow title config windowAction = do
-  window <-
-    manageResource
-      (SDL.createWindow title config)
-      SDL.destroyWindow
-  -- TODO: 最後にloopを有効化
-  -- sdlLoop $ windowAction window
-  windowAction window
+  m SDL.Window
+newSDLWindow title config = do
+  manageResource
+    (SDL.createWindow title config)
+    SDL.destroyWindow
+
+-- -- やっぱなし ~TODO: 最後にloopを有効化~
+-- -- sdlLoop $ windowAction window
+-- windowAction window
 
 sdlLoop :: MonadIO m => m () -> m ()
 sdlLoop action = do
